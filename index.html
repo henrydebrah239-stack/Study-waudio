@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Study Podcast Generator</title>
+    <!-- PWA Manifest Link -->
+    <link rel="manifest" href="manifest.json">
+    <!-- Load Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7f9fc;
+            min-height: 100vh;
+        }
+        textarea::-webkit-scrollbar {
+            width: 8px;
+        }
+        textarea::-webkit-scrollbar-thumb {
+            background-color: #a8b0bd;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8 flex flex-col items-center">
+
+    <div class="w-full max-w-2xl bg-white shadow-xl rounded-2xl p-6 md:p-10 border border-gray-100">
+        <h1 class="text-3xl font-bold text-gray-800 mb-2">Study Note Audio Generator</h1>
+        <p class="text-gray-600 mb-6">Paste text from your study materials to create a custom, human-like audio file.</p>
+
+        <!-- Voice and Style Configuration -->
+        <div class="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+            <label for="voiceSelect" class="block text-sm font-medium text-blue-800 mb-2">1. Choose Speaker Voice</label>
+            <select id="voiceSelect" class="w-full p-2 border border-blue-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition duration-150 ease-in-out">
+                <option value="Kore">Kore (Firm, Clear)</option>
+                <option value="Puck">Puck (Upbeat, Enthusiastic)</option>
+                <option value="Charon">Charon (Informative)</option>
+                <option value="Zephyr">Zephyr (Bright)</option>
+                <option value="Fenrir">Fenrir (Excitable)</option>
+                <option value="Leda">Leda (Youthful)</option>
+            </select>
+        </div>
+
+        <!-- Text Input Area -->
+        <div class="mb-6">
+            <label for="textInput" class="block text-sm font-medium text-gray-700 mb-2">2. Enter or Paste Your Text (Max ~2000 characters)</label>
+            <textarea id="textInput" rows="10" placeholder="Paste your study notes or document text here. For PDFs or documents, please copy the text first."
+                class="w-full p-3 border border-gray-300 rounded-lg shadow-inner focus:ring-indigo-500 focus:border-indigo-500 resize-none transition duration-150 ease-in-out"></textarea>
+        </div>
+
+        <!-- File Upload (for TXT only) -->
+        <div class="mb-6">
+            <label for="fileUpload" class="block text-sm font-medium text-gray-700 mb-2">...or 2b. Upload a simple TXT file</label>
+            <input type="file" id="fileUpload" accept=".txt" class="block w-full text-sm text-gray-500
+                file:mr-4 file:py-2 file:px-4
+                file:rounded-full file:border-0
+                file:text-sm file:font-semibold
+                file:bg-indigo-50 file:text-indigo-700
+                hover:file:bg-indigo-100
+                cursor-pointer
+            ">
+            <p id="fileStatus" class="text-xs text-gray-500 mt-1"></p>
+        </div>
+
+        <!-- Generation Button -->
+        <div class="mb-6">
+            <button id="generateButton" onclick="generateAudio()"
+                class="w-full bg-indigo-600 text-white py-3 px-4 rounded-xl font-semibold shadow-lg hover:bg-indigo-700 transition duration-150 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center">
+                <span id="buttonText">Generate Audio Podcast</span>
+                <svg id="loadingSpinner" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+            </button>
+            <p id="messageArea" class="mt-3 text-sm text-red-600 text-center"></p>
+        </div>
+
+        <!-- Audio Output Area -->
+        <div id="audioOutput" class="mt-8 pt-6 border-t border-gray-200 hidden">
+            <h3 class="text-xl font-semibold text-gray-800 mb-4">3. Listen & Download</h3>
+            <audio id="audioPlayer" controls class="w-full rounded-lg shadow-md"></audio>
+            <a id="downloadLink" href="#" download="study_podcast.wav"
+                class="mt-4 inline-block bg-green-500 text-white py-2 px-4 rounded-full font-medium hover:bg-green-600 transition duration-150 ease-in-out">
+                Download WAV File
+            </a>
+            <p class="text-xs text-gray-500 mt-2">The audio is saved as a high-quality WAV file.</p>
+        </div>
+
+    </div>
+
+    <script>
+        // --- Service Worker Registration ---
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('service-worker.js')
+                    .then(reg => console.log('SW registered:', reg))
+                    .catch(err => console.log('SW registration failed:', err));
+            });
+        }
+        
+        // --- Core Application Logic (Same as before) ---
+        const apiKey = ""; 
+        const API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent";
+        
+        const voiceSelect = document.getElementById('voiceSelect');
+        const textInput = document.getElementById('textInput');
+        const fileUpload = document.getElementById('fileUpload');
+        const generateButton = document.getElementById('generateButton');
+        const buttonText = document.getElementById('buttonText');
+        const loadingSpinner = document.getElementById('loadingSpinner');
+        const messageArea = document.getElementById('messageArea');
+        const audioOutput = document.getElementById('audioOutput');
+        const audioPlayer = document.getElementById('audioPlayer');
+        const downloadLink = document.getElementById('downloadLink');
+
+        // File Reading Logic (for TXT files)
+        fileUpload.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (!file) {
+                document.getElementById('fileStatus').textContent = "";
+                return;
+            }
+
+            if (file.size > 2 * 1024 * 1024) { 
+                messageArea.textContent = "File is too large (max 2MB). Please paste text instead.";
+                event.target.value = null; 
+                return;
+            }
+
+            if (file.type !== 'text/plain') {
+                messageArea.textContent = "Only .txt files are supported for reading.";
+                event.target.value = null;
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const content = e.target.result;
+                textInput.value = content;
+                document.getElementById('fileStatus').textContent = `File loaded: ${file.name}`;
+                messageArea.textContent = "Text loaded successfully. You can now generate audio.";
+            };
+            reader.onerror = () => {
+                messageArea.textContent = "Error reading file.";
+            };
+            reader.readAsText(file);
+        });
+        
+        // Converts Base64 string to ArrayBuffer. 
+        function base64ToArrayBuffer(base64) {
+            const binary_string = window.atob(base64);
+            const len = binary_string.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binary_string.charCodeAt(i);
+            }
+            return bytes.buffer;
+        }
+
+        // Encapsulates raw PCM audio data into a standard WAV file format (Blob).
+        function pcmToWav(pcmBuffer, sampleRate = 24000) {
+            const audioData = new DataView(pcmBuffer);
+            const numChannels = 1;
+            const bitDepth = 16;
+            const bytesPerSample = bitDepth / 8;
+            const blockAlign = numChannels * bytesPerSample;
+            const byteRate = sampleRate * blockAlign;
+            const dataLength = pcmBuffer.byteLength;
+            const fileSize = 36 + dataLength;
+
+            const arrayBuffer = new ArrayBuffer(fileSize + 8);
+            const view = new DataView(arrayBuffer);
+
+            let offset = 0;
+
+            function writeString(s) {
+                for (let i = 0; i < s.length; i++) {
+                    view.setUint8(offset++, s.charCodeAt(i));
+                }
+            }
+
+            writeString('RIFF');
+            view.setUint32(offset, fileSize, true); offset += 4;
+            writeString('WAVE');
+
+            writeString('fmt ');
+            view.setUint32(offset, 16, true); offset += 4;
+            view.setUint16(offset, 1, true); offset += 2; 
+            view.setUint16(offset, numChannels, true); offset += 2;
+            view.setUint32(offset, sampleRate, true); offset += 4;
+            view.setUint32(offset, byteRate, true); offset += 4;
+            view.setUint16(offset, blockAlign, true); offset += 2;
+            view.setUint16(offset, bitDepth, true); offset += 2;
+
+            writeString('data');
+            view.setUint32(offset, dataLength, true); offset += 4;
+
+            const pcmBytes = new Uint8Array(pcmBuffer);
+            for (let i = 0; i < dataLength; i++) {
+                view.setUint8(offset++, pcmBytes[i]);
+            }
+            
+            return new Blob([view], { type: 'audio/wav' });
+        }
+
+        // Main Generation Function
+        async function generateAudio() {
+            messageArea.textContent = '';
+            audioOutput.classList.add('hidden');
+
+            const text = textInput.value.trim();
+            const selectedVoice = voiceSelect.value;
+            const maxChars = 2000;
+
+            if (text.length === 0) {
+                messageArea.textContent = 'Please enter some text to convert.';
+                return;
+            }
+            if (text.length > maxChars) {
+                messageArea.textContent = `Text is too long. Please limit to ${maxChars} characters.`;
+                return;
+            }
+
+            generateButton.disabled = true;
+            buttonText.textContent = 'Generating... Please wait';
+            loadingSpinner.classList.remove('hidden');
+
+            const payload = {
+                contents: [{
+                    parts: [{ text: text }]
+                }],
+                generationConfig: {
+                    responseModalities: ["AUDIO"],
+                    speechConfig: {
+                        voiceConfig: {
+                            prebuiltVoiceConfig: { voiceName: selectedVoice }
+                        }
+                    }
+                },
+                model: "gemini-2.5-flash-preview-tts"
+            };
+
+            try {
+                const response = await fetch(`${API_URL}?key=${apiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    const errorJson = await response.json();
+                    throw new Error(`API Error: ${response.status} - ${errorJson.error?.message || 'Unknown error'}`);
+                }
+
+                const result = await response.json();
+                const part = result?.candidates?.[0]?.content?.parts?.[0];
+                const audioData = part?.inlineData?.data;
+                const mimeType = part?.inlineData?.mimeType;
+
+                if (!audioData) {
+                    throw new Error("Could not retrieve audio data from the API response.");
+                }
+                
+                if (!mimeType || !mimeType.startsWith("audio/L16")) {
+                    console.error("Unexpected audio format:", mimeType);
+                    messageArea.textContent = "Error: Received unexpected audio format.";
+                    return;
+                }
+
+                const pcmArrayBuffer = base64ToArrayBuffer(audioData);
+                const wavBlob = pcmToWav(pcmArrayBuffer, 24000); 
+                const audioUrl = URL.createObjectURL(wavBlob);
+                
+                audioPlayer.src = audioUrl;
+                downloadLink.href = audioUrl;
+
+                audioOutput.classList.remove('hidden');
+                messageArea.textContent = "Audio generated successfully! Click play or download.";
+                
+            } catch (error) {
+                console.error("Generation failed:", error);
+                messageArea.textContent = `Failed to generate audio. Please try again. (${error.message.substring(0, 50)}...)`;
+            } finally {
+                generateButton.disabled = false;
+                buttonText.textContent = 'Generate Audio Podcast';
+                loadingSpinner.classList.add('hidden');
+            }
+        }
+    </script>
+</body>
+</html>
+
+￼Enter
